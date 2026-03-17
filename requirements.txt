@@ -1,0 +1,15 @@
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+pillow==10.3.0
+qdrant-client>=1.9.1
+python-dotenv==1.0.1
+pydantic==2.7.1
+pydantic-settings==2.2.1
+numpy
+face_recognition
+motor==3.4.0
+pymongo==4.7.2
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
