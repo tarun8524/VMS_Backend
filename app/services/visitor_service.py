@@ -31,7 +31,7 @@ async def register_visitor(
     }
     await db.visitors.insert_one(doc)
 
-    # Store face in Qdrant with visitor_uid
+    # Store face in Qdrant
     qdrant_db.upsert_face(
         visitor_uid=visitor_uid,
         encoding=encoding,
@@ -43,7 +43,7 @@ async def register_visitor(
         },
     )
 
-    # Create a visit record
+    # Create visit record
     visit_doc = {
         "visit_id": str(uuid.uuid4()),
         "visitor_uid": visitor_uid,
@@ -58,6 +58,13 @@ async def register_visitor(
         "updated_at": now,
     }
     await db.visits.insert_one(visit_doc)
+
+    # Email the employee — import here to avoid circular deps
+    from app.services.visit_service import notify_employee_new_visit
+    try:
+        await notify_employee_new_visit(visit_doc)
+    except Exception:
+        pass  # Email failure must not break registration
 
     return doc
 

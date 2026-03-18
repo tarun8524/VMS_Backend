@@ -63,9 +63,9 @@ class VisitorOut(BaseModel):
 # ── Visits / Check-ins ─────────────────────────────────────────────────────────
 
 class VisitStatus(str, Enum):
-    pending   = "pending"
-    approved  = "approved"
-    rejected  = "rejected"
+    pending     = "pending"
+    approved    = "approved"
+    rejected    = "rejected"
     checked_in  = "checked_in"
     checked_out = "checked_out"
 
@@ -83,10 +83,27 @@ class VisitOut(BaseModel):
     status: VisitStatus
     created_at: datetime
     updated_at: Optional[datetime] = None
+    location_id: Optional[str] = None
+    location_name: Optional[str] = None
+    otp: Optional[str] = None
+    require_otp: Optional[bool] = None
 
 
 class VisitStatusUpdate(BaseModel):
     status: VisitStatus
+    location_id: Optional[str] = None   # required when status == "approved"
+    require_otp: bool = False            # if True, generate & email OTP to visitor
+
+
+# ── Locations ──────────────────────────────────────────────────────────────────
+
+class LocationOut(BaseModel):
+    location_id: str
+    name: str
+    address: str
+    lat: str
+    lng: str
+    maps_url: str
 
 
 # ── Face Search ────────────────────────────────────────────────────────────────

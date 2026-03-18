@@ -42,7 +42,13 @@ async def update_status(
     body: VisitStatusUpdate,
     current: dict = Depends(get_current_employee),
 ):
-    return await visit_service.update_visit_status(visit_id, current["employee_id"], body.status)
+    return await visit_service.update_visit_status(
+        visit_id=visit_id,
+        employee_id=current["employee_id"],
+        status=body.status,
+        location_id=body.location_id,
+        require_otp=body.require_otp,
+    )
 
 
 @router.get("/all", summary="Admin: all visits")
