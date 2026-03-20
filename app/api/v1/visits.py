@@ -10,10 +10,11 @@ router = APIRouter()
 async def my_visits(
     status: str = Query(None),
     limit: int = 50,
+    today_only: bool = Query(False),
     current: dict = Depends(get_current_employee),
 ):
     return await visit_service.get_visits_for_employee(
-        current["employee_id"], status=status, limit=limit
+        current["employee_id"], status=status, limit=limit, today_only=today_only
     )
 
 

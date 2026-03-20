@@ -13,11 +13,22 @@ def _serialize(doc: dict) -> dict:
     return doc
 
 
-async def get_visits_for_employee(employee_id: str, status: str = None, limit: int = 50) -> list:
+async def get_visits_for_employee(
+    employee_id: str,
+    status: str = None,
+    limit: int = 50,
+    today_only: bool = False,
+) -> list:
     db = get_db()
     query = {"employee_id": employee_id}
     if status:
         query["status"] = status
+    if today_only:
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        query["created_at"] = {"$gte": today_start}
+
     cursor = db.visits.find(query, {"_id": 0}).sort("created_at", -1).limit(limit)
     visits = await cursor.to_list(length=limit)
     emp = await db.employees.find_one({"employee_id": employee_id}, {"name": 1})
