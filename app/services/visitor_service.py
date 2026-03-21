@@ -128,6 +128,156 @@ async def register_visitor(
     return out or {}
 
 
+def _normalize_phone(raw: str) -> str:
+    """
+    Strip everything that isn't a digit or a leading '+'.
+    Examples:
+      "+91 9182928678"  →  "+919182928678"
+      "91 9182928678"   →  "919182928678"
+      "9182928678"      →  "9182928678"
+      "+91-918-292-8678"→  "+919182928678"
+    Then we also keep a digits-only fallback for matching.
+    """
+    raw = raw.strip()
+    if raw.startswith("+"):
+        return "+" + "".join(c for c in raw[1:] if c.isdigit())
+    return "".join(c for c in raw if c.isdigit())
+
+
+async def verify_visitor_identity(
+    visitor_uid: str,
+    phone: str,
+    email: str,
+) -> dict:
+    """
+    Verifies that the given phone AND email match the stored profile for visitor_uid.
+    Phone comparison is format-insensitive (strips spaces, dashes, country-code prefix
+    variations). Email comparison is case-insensitive.
+
+    Returns { verified: True, visitor: {...} } on success,
+            { verified: False, visitor: None, debug: {...} } on mismatch.
+    Raises 404 if the visitor_uid does not exist.
+    """
+    db = get_db()
+    doc = await db.visitors.find_one({"visitor_uid": visitor_uid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Visitor not found")
+
+    stored_phone_raw = doc.get("phone") or ""
+    stored_email_raw = doc.get("email") or ""
+
+    # Normalise phone — strip spaces/dashes, handle +91 prefix variants
+    stored_phone_norm = _normalize_phone(stored_phone_raw)
+    given_phone_norm  = _normalize_phone(phone)
+
+    # Digits-only fallback: strip leading country code for loose match
+    # e.g. "+919182928678" → "9182928678", "919182928678" → "9182928678"
+    def digits_tail(s: str) -> str:
+        """Last 10 digits — works for Indian numbers regardless of prefix."""
+        digits = "".join(c for c in s if c.isdigit())
+        return digits[-10:] if len(digits) >= 10 else digits
+
+    stored_tail = digits_tail(stored_phone_raw)
+    given_tail  = digits_tail(phone)
+
+    # Email: strip whitespace + lowercase
+    stored_email = stored_email_raw.strip().lower()
+    given_email  = email.strip().lower()
+
+    phone_match = (
+        stored_phone_norm == given_phone_norm   # exact normalised match
+        or stored_tail == given_tail            # last-10-digits match
+    )
+    email_match = stored_email == given_email
+
+    if phone_match and email_match:
+        return {"verified": True, "visitor": doc}
+    else:
+        # Return debug info so the caller can log what actually differed
+        return {
+            "verified": False,
+            "visitor":  None,
+            "debug": {
+                "phone_match": phone_match,
+                "email_match": email_match,
+                "stored_phone_norm": stored_phone_norm,
+                "given_phone_norm":  given_phone_norm,
+                "stored_tail": stored_tail,
+                "given_tail":  given_tail,
+                "stored_email": stored_email,
+                "given_email":  given_email,
+            },
+        }
+
+
+async def update_visitor_details(
+    visitor_uid: str,
+    name:        str | None        = None,
+    phone:       str | None        = None,
+    email:       str | None        = None,
+    encoding:    list[float] | None = None,
+    thumbnail:   str | None        = None,
+) -> dict:
+    """
+    Partially updates a visitor's profile fields.
+    Only non-None values are written.
+    If a new phone/email is supplied, uniqueness is enforced.
+    """
+    db  = get_db()
+    now = datetime.now(timezone.utc)
+
+    doc = await db.visitors.find_one({"visitor_uid": visitor_uid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Visitor not found")
+
+    set_map: dict = {"updated_at": now}
+
+    # Uniqueness checks for phone/email if they are being changed
+    if phone and phone != doc.get("phone"):
+        clash = await db.visitors.find_one(
+            {"phone": phone, "visitor_uid": {"$ne": visitor_uid}}
+        )
+        if clash:
+            raise HTTPException(status_code=409, detail="Phone number already registered to another visitor")
+        set_map["phone"] = phone
+
+    if email and email != doc.get("email"):
+        clash = await db.visitors.find_one(
+            {"email": email, "visitor_uid": {"$ne": visitor_uid}}
+        )
+        if clash:
+            raise HTTPException(status_code=409, detail="Email already registered to another visitor")
+        set_map["email"] = email
+
+    if name:
+        set_map["name"] = name
+
+    if thumbnail:
+        set_map["thumbnail"] = thumbnail
+
+    await db.visitors.update_one(
+        {"visitor_uid": visitor_uid},
+        {"$set": set_map},
+    )
+
+    # Update Qdrant with latest profile info + optionally new encoding
+    updated = await db.visitors.find_one({"visitor_uid": visitor_uid}, {"_id": 0})
+    if updated:
+        qdrant_db.upsert_face(
+            visitor_uid=visitor_uid,
+            encoding=encoding if encoding else [],   # keep existing if no new photo
+            meta={
+                "visitor_uid": visitor_uid,
+                "name":        updated.get("name", ""),
+                "phone":       updated.get("phone", ""),
+                "email":       updated.get("email", ""),
+                "thumbnail":   updated.get("thumbnail", ""),
+            },
+        )
+
+    return updated or {}
+
+
 async def get_all_visitors(limit: int = 100) -> list:
     db = get_db()
     cursor = db.visitors.find({}, {"_id": 0}).limit(limit).sort("created_at", -1)
